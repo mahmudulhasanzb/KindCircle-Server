@@ -479,6 +479,131 @@ app.post('/api/campaigns', verifyToken, isCreator, async (req, res) => {
   }
 });
 
+// GET /api/campaigns/creator/:userId — Fetch all campaigns by creator, sorted by deadline descending
+app.get('/api/campaigns/creator/:userId', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const campaigns = await db.collection('campaigns')
+      .find({ creatorId: userId })
+      .sort({ deadline: -1 })
+      .toArray();
+
+    res.json(campaigns);
+  } catch (error) {
+    console.error('Error fetching creator campaigns:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PUT /api/campaigns/:id (Creator only, verify ownership) — Update campaign details
+app.put('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, story, reward_info } = req.body as {
+      title?: string;
+      story?: string;
+      reward_info?: string;
+    };
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+
+    // 1. Fetch Campaign
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(id) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+
+    // 2. Verify Ownership
+    if (campaign.creator_email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You do not own this campaign' });
+      return;
+    }
+
+    // 3. Update Fields
+    const updateFields: Record<string, string> = {};
+    if (title && title.trim()) updateFields.title = title.trim();
+    if (story && story.trim()) updateFields.story = story.trim();
+    if (reward_info && reward_info.trim()) updateFields.reward_info = reward_info.trim();
+
+    if (Object.keys(updateFields).length === 0) {
+      res.status(400).json({ message: 'No fields to update' });
+      return;
+    }
+
+    await db.collection('campaigns').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    res.json({ message: 'Campaign updated successfully' });
+  } catch (error) {
+    console.error('Error updating campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/campaigns/:id (Creator only, verify ownership) — Delete campaign and refund contributors
+app.delete('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+
+    // 1. Fetch Campaign
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(id) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+
+    // 2. Verify Ownership
+    if (campaign.creator_email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You do not own this campaign' });
+      return;
+    }
+
+    // 3. Refund Approved Contributions
+    const approvedContributions = await db.collection('contributions').find({
+      campaignId: id,
+      status: 'approved',
+    }).toArray();
+
+    for (const contrib of approvedContributions) {
+      await db.collection('user').updateOne(
+        { email: contrib.supporter_email },
+        { $inc: { credits: contrib.amount } }
+      );
+    }
+
+    // 4. Update all contributions for this campaign to rejected/refunded status
+    await db.collection('contributions').updateMany(
+      { campaignId: id },
+      { $set: { status: 'rejected' } }
+    );
+
+    // 5. Delete Campaign
+    await db.collection('campaigns').deleteOne({ _id: new ObjectId(id) });
+
+    res.json({
+      message: 'Campaign deleted successfully. Approved contributors refunded.',
+      refundedBackers: approvedContributions.length,
+    });
+  } catch (error) {
+    console.error('Error deleting campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 
 
 // Start server
