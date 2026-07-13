@@ -2,12 +2,18 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, Db } from 'mongodb';
+import { createRemoteJWKSet, jwtVerify } from 'jose-cjs';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/kindcircle';
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${CLIENT_URL}/api/auth/jwks`)
+);
 
 // Middlewares
 app.use(cors());
@@ -95,6 +101,65 @@ export interface Report {
   reason: string;
   createdAt: Date;
 }
+
+export interface AuthRequest extends express.Request {
+  user?: {
+    id: string;
+    email: string;
+    role: 'supporter' | 'creator' | 'admin';
+    [key: string]: any;
+  };
+}
+
+export const verifyToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ message: 'Unauthorized' });
+    return;
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    res.status(401).json({ message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    (req as AuthRequest).user = payload as any;
+    next();
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    res.status(401).json({ message: 'Unauthorized' });
+  }
+};
+
+export const isSupporter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as AuthRequest).user;
+  if (!user || user.role !== 'supporter') {
+    res.status(403).json({ message: 'Forbidden' });
+    return;
+  }
+  next();
+};
+
+export const isCreator = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as AuthRequest).user;
+  if (!user || user.role !== 'creator') {
+    res.status(403).json({ message: 'Forbidden' });
+    return;
+  }
+  next();
+};
+
+export const isAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = (req as AuthRequest).user;
+  if (!user || user.role !== 'admin') {
+    res.status(403).json({ message: 'Forbidden' });
+    return;
+  }
+  next();
+};
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
