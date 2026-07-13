@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient, Db, ObjectId } from 'mongodb';
 import { createRemoteJWKSet, jwtVerify } from 'jose-cjs';
 
 dotenv.config();
@@ -256,6 +256,115 @@ app.get('/api/campaigns', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
+// GET /api/campaigns/:id — Return single campaign by ObjectId
+app.get('/api/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(id) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+
+    res.json(campaign);
+  } catch (error) {
+    console.error('Error fetching campaign detail:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/contributions (Supporter only) — Contribute credits to campaign
+app.post('/api/contributions', verifyToken, isSupporter, async (req, res) => {
+  try {
+    const { campaignId, amount } = req.body as { campaignId: string; amount: number };
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (!campaignId || !ObjectId.isValid(campaignId)) {
+      res.status(400).json({ message: 'Invalid or missing campaign ID' });
+      return;
+    }
+
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      res.status(400).json({ message: 'Invalid contribution amount' });
+      return;
+    }
+
+    // 1. Fetch Campaign
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(campaignId) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+
+    // 2. Validate Campaign Status & Deadline
+    if (campaign.status !== 'approved') {
+      res.status(400).json({ message: 'Campaign is not active or approved' });
+      return;
+    }
+
+    if (new Date(campaign.deadline).getTime() < Date.now()) {
+      res.status(400).json({ message: 'Campaign deadline has passed' });
+      return;
+    }
+
+    // 3. Validate Minimum Contribution
+    if (amount < campaign.minimum_contribution) {
+      res.status(400).json({
+        message: `Contribution must be at least ${campaign.minimum_contribution} credits`,
+      });
+      return;
+    }
+
+    // 4. Fetch Supporter
+    const supporter = await db.collection('user').findOne({ email: userEmail });
+    if (!supporter) {
+      res.status(404).json({ message: 'Supporter user not found' });
+      return;
+    }
+
+    // 5. Validate Supporter Credits
+    const currentCredits = supporter.credits || 0;
+    if (currentCredits < amount) {
+      res.status(400).json({ message: 'Insufficient credits in supporter balance' });
+      return;
+    }
+
+    // 6. Deduct Credits from Supporter
+    await db.collection('user').updateOne(
+      { _id: supporter._id },
+      { $inc: { credits: -amount } }
+    );
+
+    // 7. Create Pending Contribution
+    const contributionDoc = {
+      campaignId: campaignId,
+      campaignTitle: campaign.title,
+      supporter_email: supporter.email,
+      creator_email: campaign.creator_email,
+      amount: amount,
+      status: 'pending',
+      createdAt: new Date(),
+    };
+
+    const insertResult = await db.collection('contributions').insertOne(contributionDoc);
+
+    res.status(201).json({
+      message: 'Contribution submitted successfully and is pending approval',
+      contributionId: insertResult.insertedId,
+      remainingCredits: currentCredits - amount,
+    });
+  } catch (error) {
+    console.error('Error submitting contribution:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 
 // Start server
 connectDB().then(async () => {
