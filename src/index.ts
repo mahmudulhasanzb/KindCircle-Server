@@ -208,9 +208,74 @@ app.get('/api/campaigns/top-funded', async (req, res) => {
   }
 });
 
+// GET /api/campaigns — approved, non-expired campaigns with optional filters
+app.get('/api/campaigns', async (req, res) => {
+  try {
+    const { category, search, sort } = req.query as {
+      category?: string;
+      search?: string;
+      sort?: string;
+    };
+
+    const now = new Date();
+
+    // Build filter query
+    const query: Record<string, any> = {
+      status: 'approved',
+      deadline: { $gt: now },
+    };
+
+    if (category && category !== 'all') {
+      query.category = category;
+    }
+
+    if (search && search.trim() !== '') {
+      query.$or = [
+        { title: { $regex: search.trim(), $options: 'i' } },
+        { story: { $regex: search.trim(), $options: 'i' } },
+        { creator_name: { $regex: search.trim(), $options: 'i' } },
+      ];
+    }
+
+    // Build sort
+    let sortQuery: Record<string, 1 | -1> = { createdAt: -1 }; // default: newest
+    if (sort === 'most-funded') {
+      sortQuery = { amount_raised: -1 };
+    } else if (sort === 'ending-soon') {
+      sortQuery = { deadline: 1 };
+    }
+
+    const campaigns = await db.collection('campaigns')
+      .find(query)
+      .sort(sortQuery)
+      .toArray();
+
+    res.json(campaigns);
+  } catch (error) {
+    console.error('Error fetching campaigns:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Start server
-connectDB().then(() => {
+connectDB().then(async () => {
+  // Create indexes on campaigns collection (T-9.7)
+  try {
+    const campaignsCol = db.collection('campaigns');
+    await Promise.all([
+      campaignsCol.createIndex({ status: 1, createdAt: -1 }),
+      campaignsCol.createIndex({ creatorId: 1 }),
+      campaignsCol.createIndex({ category: 1 }),
+      campaignsCol.createIndex({ amount_raised: -1 }),
+      campaignsCol.createIndex({ deadline: 1 }),
+    ]);
+    console.log('Campaign indexes ensured.');
+  } catch (err) {
+    console.warn('Index creation warning:', err);
+  }
+
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 });
+
