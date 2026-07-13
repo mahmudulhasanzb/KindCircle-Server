@@ -170,6 +170,44 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// GET /api/stats/platform - Returns platform totals
+app.get('/api/stats/platform', async (req, res) => {
+  try {
+    const usersCount = await db.collection('user').countDocuments();
+    const campaignsCount = await db.collection('campaigns').countDocuments({ status: 'approved' });
+    const creditsResult = await db.collection('campaigns').aggregate([
+      { $match: { status: 'approved' } },
+      { $group: { _id: null, totalCredits: { $sum: '$amount_raised' } } }
+    ]).toArray();
+    const totalCreditsRaised = creditsResult.length > 0 ? creditsResult[0].totalCredits : 0;
+
+    res.json({
+      totalUsers: usersCount,
+      totalCampaigns: campaignsCount,
+      totalCreditsRaised,
+    });
+  } catch (error) {
+    console.error('Error fetching platform stats:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/campaigns/top-funded - Returns top 6 approved campaigns by raised amount
+app.get('/api/campaigns/top-funded', async (req, res) => {
+  try {
+    const campaigns = await db.collection('campaigns')
+      .find({ status: 'approved' })
+      .sort({ amount_raised: -1 })
+      .limit(6)
+      .toArray();
+
+    res.json(campaigns);
+  } catch (error) {
+    console.error('Error fetching top funded campaigns:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Start server
 connectDB().then(() => {
   app.listen(PORT, () => {
