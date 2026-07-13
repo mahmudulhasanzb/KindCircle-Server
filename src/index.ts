@@ -272,7 +272,12 @@ app.get('/api/campaigns/:id', async (req, res) => {
       return;
     }
 
-    res.json(campaign);
+    const backerCount = await db.collection('contributions').countDocuments({ campaignId: id });
+
+    res.json({
+      ...campaign,
+      backerCount: backerCount || 0,
+    });
   } catch (error) {
     console.error('Error fetching campaign detail:', error);
     res.status(500).json({ message: 'Internal server error' });
