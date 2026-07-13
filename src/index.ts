@@ -179,7 +179,7 @@ app.get('/api/stats/platform', async (req, res) => {
       { $match: { status: 'approved' } },
       { $group: { _id: null, totalCredits: { $sum: '$amount_raised' } } }
     ]).toArray();
-    const totalCreditsRaised = creditsResult.length > 0 ? creditsResult[0].totalCredits : 0;
+    const totalCreditsRaised = creditsResult.length > 0 && creditsResult[0] ? creditsResult[0].totalCredits : 0;
 
     res.json({
       totalUsers: usersCount,
