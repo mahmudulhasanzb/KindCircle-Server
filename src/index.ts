@@ -370,6 +370,116 @@ app.post('/api/contributions', verifyToken, isSupporter, async (req, res) => {
   }
 });
 
+// POST /api/campaigns (Creator only) — Submit a new campaign
+app.post('/api/campaigns', verifyToken, isCreator, async (req, res) => {
+  try {
+    const {
+      title,
+      story,
+      category,
+      funding_goal,
+      minimum_contribution,
+      deadline,
+      reward_info,
+      image_url,
+    } = req.body as {
+      title: string;
+      story: string;
+      category: string;
+      funding_goal: number;
+      minimum_contribution: number;
+      deadline: string;
+      reward_info: string;
+      image_url: string;
+    };
+
+    const userEmail = (req as AuthRequest).user?.email;
+
+    // 1. Validation
+    if (!title || !title.trim()) {
+      res.status(400).json({ message: 'Title is required' });
+      return;
+    }
+    if (!story || !story.trim()) {
+      res.status(400).json({ message: 'Story is required' });
+      return;
+    }
+    if (!category || !category.trim()) {
+      res.status(400).json({ message: 'Category is required' });
+      return;
+    }
+    if (funding_goal === undefined || typeof funding_goal !== 'number' || funding_goal <= 0) {
+      res.status(400).json({ message: 'Funding goal must be a positive number greater than 0' });
+      return;
+    }
+    if (
+      minimum_contribution === undefined ||
+      typeof minimum_contribution !== 'number' ||
+      minimum_contribution <= 0
+    ) {
+      res.status(400).json({ message: 'Minimum contribution must be a positive number greater than 0' });
+      return;
+    }
+    if (!deadline) {
+      res.status(400).json({ message: 'Deadline is required' });
+      return;
+    }
+    const deadlineDate = new Date(deadline);
+    if (isNaN(deadlineDate.getTime())) {
+      res.status(400).json({ message: 'Invalid deadline date' });
+      return;
+    }
+    if (deadlineDate.getTime() <= Date.now()) {
+      res.status(400).json({ message: 'Deadline must be a future date' });
+      return;
+    }
+    if (!reward_info || !reward_info.trim()) {
+      res.status(400).json({ message: 'Reward info is required' });
+      return;
+    }
+    if (!image_url || !image_url.trim()) {
+      res.status(400).json({ message: 'Cover image URL is required' });
+      return;
+    }
+
+    // 2. Fetch Creator Info
+    const creator = await db.collection('user').findOne({ email: userEmail });
+    if (!creator) {
+      res.status(404).json({ message: 'Creator profile not found' });
+      return;
+    }
+
+    // 3. Save Campaign
+    const campaignDoc = {
+      title: title.trim(),
+      story: story.trim(),
+      category: category.toLowerCase().trim(),
+      funding_goal,
+      minimum_contribution,
+      deadline: deadlineDate,
+      reward_info: reward_info.trim(),
+      image_url: image_url.trim(),
+      creatorId: creator._id.toString(),
+      creator_name: creator.name || 'Anonymous',
+      creator_email: creator.email,
+      amount_raised: 0,
+      status: 'pending',
+      createdAt: new Date(),
+    };
+
+    const result = await db.collection('campaigns').insertOne(campaignDoc);
+
+    res.status(201).json({
+      message: 'Campaign created successfully and is pending admin approval',
+      campaignId: result.insertedId,
+    });
+  } catch (error) {
+    console.error('Error creating campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 
 // Start server
 connectDB().then(async () => {
