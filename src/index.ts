@@ -944,6 +944,177 @@ app.get('/api/supporter/stats/:email', verifyToken, isSupporter, async (req, res
   }
 });
 
+// POST /api/notifications — Create a custom notification (T-16.2)
+app.post('/api/notifications', verifyToken, async (req, res) => {
+  try {
+    const { toEmail, message, actionRoute } = req.body as {
+      toEmail: string;
+      message: string;
+      actionRoute: string;
+    };
+
+    if (!toEmail || !message || !actionRoute) {
+      res.status(400).json({ message: 'Missing fields: toEmail, message, and actionRoute are required' });
+      return;
+    }
+
+    await createNotification(toEmail, message, actionRoute);
+    res.status(201).json({ message: 'Notification created successfully' });
+  } catch (error) {
+    console.error('Error in POST /api/notifications:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/notifications/:email — Return all notifications sorted descending by time (T-16.3)
+app.get('/api/notifications/:email', verifyToken, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    // Security check: users can only view their own notifications
+    if (email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden' });
+      return;
+    }
+
+    const notifications = await db.collection('notifications')
+      .find({ toEmail: email })
+      .sort({ time: -1 })
+      .toArray();
+
+    res.json(notifications);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
+app.patch('/api/admin/campaigns/:id/approve', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(id) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+    await db.collection('campaigns').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'approved' } }
+    );
+    // Notify creator
+    await createNotification(
+      campaign.creator_email,
+      `Your campaign "${campaign.title}" has been approved by the admin.`,
+      '/dashboard/creator/my-campaigns'
+    );
+    res.json({ message: 'Campaign approved successfully' });
+  } catch (error) {
+    console.error('Error approving campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/admin/campaigns/:id/reject — Admin rejects a pending campaign (T-20.3 / T-16.4)
+app.patch('/api/admin/campaigns/:id/reject', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+    const campaign = await db.collection('campaigns').findOne({ _id: new ObjectId(id) });
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+    await db.collection('campaigns').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'rejected' } }
+    );
+    // Notify creator
+    await createNotification(
+      campaign.creator_email,
+      `Your campaign "${campaign.title}" has been rejected by the admin.`,
+      '/dashboard/creator/my-campaigns'
+    );
+    res.json({ message: 'Campaign rejected successfully' });
+  } catch (error) {
+    console.error('Error rejecting campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/withdrawals/:id/approve — Admin approves withdrawal request (T-18.5 / T-16.4)
+app.patch('/api/withdrawals/:id/approve', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid withdrawal ID' });
+      return;
+    }
+    const withdrawal = await db.collection('withdrawals').findOne({ _id: new ObjectId(id) });
+    if (!withdrawal) {
+      res.status(404).json({ message: 'Withdrawal request not found' });
+      return;
+    }
+    await db.collection('withdrawals').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'approved' } }
+    );
+    // Notify creator
+    await createNotification(
+      withdrawal.creator_email,
+      `Your withdrawal request of ${withdrawal.withdrawal_credit} credits (${withdrawal.withdrawal_amount} USD) has been approved.`,
+      '/dashboard/creator/withdrawals'
+    );
+    res.json({ message: 'Withdrawal approved successfully' });
+  } catch (error) {
+    console.error('Error approving withdrawal:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/withdrawals/:id/reject — Admin rejects withdrawal request (T-18.6 / T-16.4)
+app.patch('/api/withdrawals/:id/reject', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid withdrawal ID' });
+      return;
+    }
+    const withdrawal = await db.collection('withdrawals').findOne({ _id: new ObjectId(id) });
+    if (!withdrawal) {
+      res.status(404).json({ message: 'Withdrawal request not found' });
+      return;
+    }
+    await db.collection('withdrawals').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'rejected' } }
+    );
+    // Refund credits to creator
+    await db.collection('user').updateOne(
+      { email: withdrawal.creator_email },
+      { $inc: { credits: withdrawal.withdrawal_credit } }
+    );
+    // Notify creator
+    await createNotification(
+      withdrawal.creator_email,
+      `Your withdrawal request of ${withdrawal.withdrawal_credit} credits (${withdrawal.withdrawal_amount} USD) has been rejected. Credits have been refunded to your balance.`,
+      '/dashboard/creator/withdrawals'
+    );
+    res.json({ message: 'Withdrawal rejected successfully' });
+  } catch (error) {
+    console.error('Error rejecting withdrawal:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Start server
 connectDB().then(async () => {
   // Create indexes on campaigns collection (T-9.7)
