@@ -751,6 +751,73 @@ app.patch('/api/contributions/:id/reject', verifyToken, isCreator, async (req, r
   }
 });
 
+// GET /api/contributions/supporter/:email — Paginated contributions by supporter
+app.get('/api/contributions/supporter/:email', verifyToken, isSupporter, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    // Security check: Supporters can only view their own contributions
+    if (email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You can only view your own contributions' });
+      return;
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { supporter_email: email };
+    const total = await db.collection('contributions').countDocuments(query);
+
+    const contributions = await db.collection('contributions').aggregate([
+      { $match: query },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'user',
+          localField: 'creator_email',
+          foreignField: 'email',
+          as: 'creator',
+        },
+      },
+      {
+        $unwind: {
+          path: '$creator',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          campaignId: 1,
+          campaignTitle: 1,
+          supporter_email: 1,
+          creator_email: 1,
+          creator_name: { $ifNull: ['$creator.name', '$creator_email'] },
+          amount: 1,
+          status: 1,
+          createdAt: 1,
+        },
+      },
+    ]).toArray();
+
+    res.json({
+      contributions,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      limit,
+    });
+  } catch (error) {
+    console.error('Error fetching supporter contributions:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 
 
 
