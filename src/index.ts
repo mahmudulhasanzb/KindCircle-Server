@@ -767,6 +767,13 @@ app.patch('/api/contributions/:id/reject', verifyToken, isCreator, async (req, r
       { $inc: { credits: contrib.amount } }
     );
 
+    // Notify supporter about the rejected contribution
+    await createNotification(
+      contrib.supporter_email,
+      `Your contribution of ${contrib.amount} credits to "${contrib.campaignTitle}" has been rejected. Credits have been refunded to your balance.`,
+      '/dashboard/supporter/contributions'
+    );
+
     res.json({ message: 'Contribution rejected and credits refunded to supporter' });
   } catch (error) {
     console.error('Error rejecting contribution:', error);
