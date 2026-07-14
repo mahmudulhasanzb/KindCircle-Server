@@ -1487,6 +1487,22 @@ app.get('/api/admin/stats', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/campaigns/pending — Admin gets pending campaigns (T-20.1)
+app.get('/api/admin/campaigns/pending', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const pendingCampaigns = await db
+      .collection('campaigns')
+      .find({ status: 'pending' })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(pendingCampaigns);
+  } catch (error) {
+    console.error('Error fetching pending campaigns:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch(
   '/api/admin/campaigns/:id/approve',
