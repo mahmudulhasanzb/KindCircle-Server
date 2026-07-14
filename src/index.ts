@@ -1570,6 +1570,41 @@ app.patch('/api/admin/users/:id/role', verifyToken, isAdmin, async (req, res) =>
   }
 });
 
+// GET /api/admin/campaigns — Admin gets all campaigns (T-22.1)
+app.get('/api/admin/campaigns', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const campaigns = await db
+      .collection('campaigns')
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(campaigns);
+  } catch (error) {
+    console.error('Error fetching all campaigns:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/campaigns/:id — Admin deletes campaign (T-22.2)
+app.delete('/api/admin/campaigns/:id', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid campaign ID' });
+      return;
+    }
+    const result = await db.collection('campaigns').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ message: 'Campaign not found' });
+      return;
+    }
+    res.json({ message: 'Campaign deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch(
   '/api/admin/campaigns/:id/approve',
