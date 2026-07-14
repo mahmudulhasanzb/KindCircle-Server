@@ -822,6 +822,91 @@ app.get('/api/contributions/supporter/:email', verifyToken, isSupporter, async (
 
 
 
+// GET /api/creator/stats/:userId — Creator dashboard stats (T-15.1)
+app.get('/api/creator/stats/:userId', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const now = new Date();
+
+    const totalCampaigns = await db.collection('campaigns').countDocuments({ creatorId: userId });
+    const activeCampaigns = await db.collection('campaigns').countDocuments({
+      creatorId: userId,
+      status: 'approved',
+      deadline: { $gt: now },
+    });
+
+    const raisedResult = await db.collection('campaigns').aggregate([
+      { $match: { creatorId: userId } },
+      { $group: { _id: null, totalRaised: { $sum: '$amount_raised' } } },
+    ]).toArray();
+    const totalRaised = raisedResult.length > 0 && raisedResult[0] ? raisedResult[0].totalRaised : 0;
+
+    res.json({ totalCampaigns, activeCampaigns, totalRaised });
+  } catch (error) {
+    console.error('Error fetching creator stats:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/supporter/stats/:email — Supporter dashboard stats (T-15.3)
+app.get('/api/supporter/stats/:email', verifyToken, isSupporter, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden' });
+      return;
+    }
+
+    const totalContributions = await db.collection('contributions').countDocuments({ supporter_email: email });
+    const pendingContributions = await db.collection('contributions').countDocuments({
+      supporter_email: email,
+      status: 'pending',
+    });
+
+    const approvedResult = await db.collection('contributions').aggregate([
+      { $match: { supporter_email: email, status: 'approved' } },
+      { $group: { _id: null, totalApproved: { $sum: '$amount' } } },
+    ]).toArray();
+    const totalApprovedAmount = approvedResult.length > 0 && approvedResult[0] ? approvedResult[0].totalApproved : 0;
+
+    const approvedContributions = await db.collection('contributions').aggregate([
+      { $match: { supporter_email: email, status: 'approved' } },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'user',
+          localField: 'creator_email',
+          foreignField: 'email',
+          as: 'creator',
+        },
+      },
+      {
+        $unwind: {
+          path: '$creator',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          campaignTitle: 1,
+          amount: 1,
+          creator_name: { $ifNull: ['$creator.name', '$creator_email'] },
+          status: 1,
+          createdAt: 1,
+        },
+      },
+    ]).toArray();
+
+    res.json({ totalContributions, pendingContributions, totalApprovedAmount, approvedContributions });
+  } catch (error) {
+    console.error('Error fetching supporter stats:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Start server
 connectDB().then(async () => {
   // Create indexes on campaigns collection (T-9.7)
