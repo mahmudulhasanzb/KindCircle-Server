@@ -1503,6 +1503,73 @@ app.get('/api/admin/campaigns/pending', verifyToken, isAdmin, async (req, res) =
   }
 });
 
+// GET /api/admin/users — Admin gets all users (T-21.1)
+app.get('/api/admin/users', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const users = await db
+      .collection('user')
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/users/:id — Admin removes user (T-21.2)
+app.delete('/api/admin/users/:id', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid user ID' });
+      return;
+    }
+    const result = await db.collection('user').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+    res.json({ message: 'User removed successfully' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/admin/users/:id/role — Admin updates user role (T-21.3)
+app.patch('/api/admin/users/:id/role', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { role } = req.body as { role?: 'supporter' | 'creator' | 'admin' };
+
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid user ID' });
+      return;
+    }
+
+    if (!role || !['supporter', 'creator', 'admin'].includes(role)) {
+      res.status(400).json({ message: 'Invalid or missing role' });
+      return;
+    }
+
+    const result = await db
+      .collection('user')
+      .updateOne({ _id: new ObjectId(id) }, { $set: { role } });
+
+    if (result.matchedCount === 0) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    res.json({ message: 'User role updated successfully' });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch(
   '/api/admin/campaigns/:id/approve',
