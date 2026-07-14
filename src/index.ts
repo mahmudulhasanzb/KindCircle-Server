@@ -711,6 +711,13 @@ app.patch('/api/contributions/:id/approve', verifyToken, isCreator, async (req, 
       { $inc: { amount_raised: contrib.amount } }
     );
 
+    // Notify supporter about the approved contribution
+    await createNotification(
+      contrib.supporter_email,
+      `Your contribution of ${contrib.amount} credits to "${contrib.campaignTitle}" has been approved.`,
+      '/dashboard/supporter/contributions'
+    );
+
     res.json({ message: 'Contribution approved successfully' });
   } catch (error) {
     console.error('Error approving contribution:', error);
