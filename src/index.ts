@@ -161,6 +161,22 @@ export const isAdmin = (req: express.Request, res: express.Response, next: expre
   next();
 };
 
+// Helper function to create database notifications
+async function createNotification(toEmail: string, message: string, actionRoute: string) {
+  try {
+    const notificationDoc = {
+      toEmail,
+      message,
+      actionRoute,
+      time: new Date()
+    };
+    await db.collection('notifications').insertOne(notificationDoc);
+    console.log(`Notification created for ${toEmail}: ${message}`);
+  } catch (error) {
+    console.error('Error creating notification:', error);
+  }
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
