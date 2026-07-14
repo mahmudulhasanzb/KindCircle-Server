@@ -1605,6 +1605,110 @@ app.delete('/api/admin/campaigns/:id', verifyToken, isAdmin, async (req, res) =>
   }
 });
 
+// POST /api/reports — Supporter reports a campaign (T-24.1)
+app.post('/api/reports', verifyToken, isSupporter, async (req, res) => {
+  try {
+    const { campaignId, reporterName, reporterEmail, reason } = req.body as {
+      campaignId?: string;
+      reporterName?: string;
+      reporterEmail?: string;
+      reason?: string;
+    };
+
+    if (!campaignId || !reason) {
+      res.status(400).json({ message: 'Campaign ID and reason are required' });
+      return;
+    }
+
+    const reportDoc = {
+      campaignId,
+      reporterName: reporterName || 'Anonymous',
+      reporterEmail: reporterEmail || 'anonymous@kindcircle.com',
+      reason,
+      createdAt: new Date(),
+    };
+
+    await db.collection('reports').insertOne(reportDoc);
+    res.status(201).json({ message: 'Report submitted successfully' });
+  } catch (error) {
+    console.error('Error submitting report:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET /api/admin/reports — Admin retrieves all reports (T-24.2)
+app.get('/api/admin/reports', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const reports = await db
+      .collection('reports')
+      .aggregate([
+        {
+          $addFields: {
+            campaignObjId: {
+              $cond: {
+                if: { $eq: [{ $strLenCP: "$campaignId" }, 24] },
+                then: { $toObjectId: "$campaignId" },
+                else: null
+              }
+            }
+          }
+        },
+        {
+          $lookup: {
+            from: 'campaigns',
+            localField: 'campaignObjId',
+            foreignField: '_id',
+            as: 'campaign',
+          },
+        },
+        {
+          $unwind: {
+            path: '$campaign',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            campaignId: 1,
+            campaignTitle: { $ifNull: ['$campaign.title', 'Deleted Campaign'] },
+            reporterName: 1,
+            reporterEmail: 1,
+            reason: 1,
+            createdAt: 1,
+          },
+        },
+        { $sort: { createdAt: -1 } },
+      ])
+      .toArray();
+
+    res.json(reports);
+  } catch (error) {
+    console.error('Error fetching admin reports:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/reports/:id — Admin deletes/dismisses report (T-24.3 / T-24.4 helper)
+app.delete('/api/admin/reports/:id', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid report ID' });
+      return;
+    }
+    const result = await db.collection('reports').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ message: 'Report not found' });
+      return;
+    }
+    res.json({ message: 'Report dismissed successfully' });
+  } catch (error) {
+    console.error('Error deleting report:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch(
   '/api/admin/campaigns/:id/approve',
