@@ -521,7 +521,7 @@ app.get('/api/campaigns/creator/:userId', verifyToken, isCreator, async (req, re
 // PUT /api/campaigns/:id (Creator only, verify ownership) — Update campaign details
 app.put('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const { title, story, reward_info } = req.body as {
       title?: string;
       story?: string;
@@ -529,7 +529,7 @@ app.put('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
     };
     const userEmail = (req as AuthRequest).user?.email;
 
-    if (!ObjectId.isValid(id)) {
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid campaign ID' });
       return;
     }
@@ -573,10 +573,10 @@ app.put('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
 // DELETE /api/campaigns/:id (Creator only, verify ownership) — Delete campaign and refund contributors
 app.delete('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const userEmail = (req as AuthRequest).user?.email;
 
-    if (!ObjectId.isValid(id)) {
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid campaign ID' });
       return;
     }
@@ -679,10 +679,10 @@ app.get('/api/contributions/pending/:creatorEmail', verifyToken, isCreator, asyn
 // PATCH /api/contributions/:id/approve (Creator only) — Approve a pending contribution
 app.patch('/api/contributions/:id/approve', verifyToken, isCreator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const userEmail = (req as AuthRequest).user?.email;
 
-    if (!ObjectId.isValid(id)) {
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid contribution ID' });
       return;
     }
@@ -735,10 +735,10 @@ app.patch('/api/contributions/:id/approve', verifyToken, isCreator, async (req, 
 // PATCH /api/contributions/:id/reject (Creator only) — Reject a pending contribution (Refund)
 app.patch('/api/contributions/:id/reject', verifyToken, isCreator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const userEmail = (req as AuthRequest).user?.email;
 
-    if (!ObjectId.isValid(id)) {
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid contribution ID' });
       return;
     }
@@ -993,8 +993,8 @@ app.get('/api/notifications/:email', verifyToken, async (req, res) => {
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch('/api/admin/campaigns/:id/approve', verifyToken, isAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid campaign ID' });
       return;
     }
@@ -1023,8 +1023,8 @@ app.patch('/api/admin/campaigns/:id/approve', verifyToken, isAdmin, async (req, 
 // PATCH /api/admin/campaigns/:id/reject — Admin rejects a pending campaign (T-20.3 / T-16.4)
 app.patch('/api/admin/campaigns/:id/reject', verifyToken, isAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid campaign ID' });
       return;
     }
@@ -1053,8 +1053,8 @@ app.patch('/api/admin/campaigns/:id/reject', verifyToken, isAdmin, async (req, r
 // PATCH /api/withdrawals/:id/approve — Admin approves withdrawal request (T-18.5 / T-16.4)
 app.patch('/api/withdrawals/:id/approve', verifyToken, isAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid withdrawal ID' });
       return;
     }
@@ -1083,8 +1083,8 @@ app.patch('/api/withdrawals/:id/approve', verifyToken, isAdmin, async (req, res)
 // PATCH /api/withdrawals/:id/reject — Admin rejects withdrawal request (T-18.6 / T-16.4)
 app.patch('/api/withdrawals/:id/reject', verifyToken, isAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
+    const id = req.params.id;
+    if (!id || typeof id !== 'string' || !ObjectId.isValid(id)) {
       res.status(400).json({ message: 'Invalid withdrawal ID' });
       return;
     }
