@@ -375,6 +375,13 @@ app.post('/api/contributions', verifyToken, isSupporter, async (req, res) => {
 
     const insertResult = await db.collection('contributions').insertOne(contributionDoc);
 
+    // Notify campaign creator about the new contribution
+    await createNotification(
+      campaign.creator_email,
+      `New contribution of ${amount} credits received for your campaign "${campaign.title}".`,
+      '/dashboard/creator/home'
+    );
+
     res.status(201).json({
       message: 'Contribution submitted successfully and is pending approval',
       contributionId: insertResult.insertedId,
