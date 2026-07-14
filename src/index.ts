@@ -1449,6 +1449,44 @@ app.get('/api/notifications/:email', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/admin/stats — Admin dashboard stats (T-19.1)
+app.get('/api/admin/stats', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const totalSupporters = await db
+      .collection('user')
+      .countDocuments({ role: 'supporter' });
+
+    const totalCreators = await db
+      .collection('user')
+      .countDocuments({ role: 'creator' });
+
+    const creditsResult = await db
+      .collection('user')
+      .aggregate([
+        { $group: { _id: null, totalCredits: { $sum: '$credits' } } },
+      ])
+      .toArray();
+    const totalCredits =
+      creditsResult.length > 0 && creditsResult[0]
+        ? creditsResult[0].totalCredits
+        : 0;
+
+    const totalPayments = await db
+      .collection('payments')
+      .countDocuments({ status: 'completed' });
+
+    res.json({
+      totalSupporters,
+      totalCreators,
+      totalCredits,
+      totalPayments,
+    });
+  } catch (error) {
+    console.error('Error fetching admin stats:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // PATCH /api/admin/campaigns/:id/approve — Admin approves a pending campaign (T-20.2 / T-16.4)
 app.patch(
   '/api/admin/campaigns/:id/approve',
