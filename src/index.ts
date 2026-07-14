@@ -1086,7 +1086,13 @@ app.get(
           ? raisedResult[0].totalRaised
           : 0;
 
-      res.json({ totalCampaigns, activeCampaigns, totalRaised });
+      const campaigns = await db
+        .collection('campaigns')
+        .find({ creatorId: userId })
+        .project({ title: 1, funding_goal: 1, amount_raised: 1 })
+        .toArray();
+
+      res.json({ totalCampaigns, activeCampaigns, totalRaised, campaigns });
     } catch (error) {
       console.error('Error fetching creator stats:', error);
       res.status(500).json({ message: 'Internal server error' });
@@ -1475,11 +1481,27 @@ app.get('/api/admin/stats', verifyToken, isAdmin, async (req, res) => {
       .collection('payments')
       .countDocuments({ status: 'completed' });
 
+    const contributionTrends = await db
+      .collection('contributions')
+      .aggregate([
+        { $match: { status: 'approved' } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            amount: { $sum: '$amount' },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $project: { date: '$_id', amount: 1, _id: 0 } },
+      ])
+      .toArray();
+
     res.json({
       totalSupporters,
       totalCreators,
       totalCredits,
       totalPayments,
+      contributionTrends,
     });
   } catch (error) {
     console.error('Error fetching admin stats:', error);
