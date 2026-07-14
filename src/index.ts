@@ -603,6 +603,155 @@ app.delete('/api/campaigns/:id', verifyToken, isCreator, async (req, res) => {
   }
 });
 
+// GET /api/contributions/pending/:creatorEmail (Creator only) — Fetch pending contributions to review
+app.get('/api/contributions/pending/:creatorEmail', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { creatorEmail } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    // Security check: Creators can only view their own pending contributions
+    if (creatorEmail !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You can only view your own contributions' });
+      return;
+    }
+
+    const pendingContributions = await db.collection('contributions').aggregate([
+      { $match: { creator_email: creatorEmail, status: 'pending' } },
+      {
+        $lookup: {
+          from: 'user',
+          localField: 'supporter_email',
+          foreignField: 'email',
+          as: 'supporter',
+        },
+      },
+      {
+        $unwind: {
+          path: '$supporter',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          campaignId: 1,
+          campaignTitle: 1,
+          supporter_email: 1,
+          supporter_name: { $ifNull: ['$supporter.name', '$supporter_email'] },
+          creator_email: 1,
+          amount: 1,
+          status: 1,
+          createdAt: 1,
+        },
+      },
+    ]).toArray();
+
+    res.json(pendingContributions);
+  } catch (error) {
+    console.error('Error fetching pending contributions:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/contributions/:id/approve (Creator only) — Approve a pending contribution
+app.patch('/api/contributions/:id/approve', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid contribution ID' });
+      return;
+    }
+
+    // 1. Fetch Contribution
+    const contrib = await db.collection('contributions').findOne({ _id: new ObjectId(id) });
+    if (!contrib) {
+      res.status(404).json({ message: 'Contribution not found' });
+      return;
+    }
+
+    // 2. Validate Pending Status
+    if (contrib.status !== 'pending') {
+      res.status(400).json({ message: `Contribution is already ${contrib.status}` });
+      return;
+    }
+
+    // 3. Verify Ownership
+    if (contrib.creator_email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You do not own the campaign for this contribution' });
+      return;
+    }
+
+    // 4. Update Status to Approved
+    await db.collection('contributions').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'approved' } }
+    );
+
+    // 5. Add to Campaign's amount_raised
+    await db.collection('campaigns').updateOne(
+      { _id: new ObjectId(contrib.campaignId) },
+      { $inc: { amount_raised: contrib.amount } }
+    );
+
+    res.json({ message: 'Contribution approved successfully' });
+  } catch (error) {
+    console.error('Error approving contribution:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/contributions/:id/reject (Creator only) — Reject a pending contribution (Refund)
+app.patch('/api/contributions/:id/reject', verifyToken, isCreator, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userEmail = (req as AuthRequest).user?.email;
+
+    if (!ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid contribution ID' });
+      return;
+    }
+
+    // 1. Fetch Contribution
+    const contrib = await db.collection('contributions').findOne({ _id: new ObjectId(id) });
+    if (!contrib) {
+      res.status(404).json({ message: 'Contribution not found' });
+      return;
+    }
+
+    // 2. Validate Pending Status
+    if (contrib.status !== 'pending') {
+      res.status(400).json({ message: `Contribution is already ${contrib.status}` });
+      return;
+    }
+
+    // 3. Verify Ownership
+    if (contrib.creator_email !== userEmail) {
+      res.status(403).json({ message: 'Forbidden: You do not own the campaign for this contribution' });
+      return;
+    }
+
+    // 4. Update Status to Rejected
+    await db.collection('contributions').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'rejected' } }
+    );
+
+    // 5. Refund credits to supporter balance
+    await db.collection('user').updateOne(
+      { email: contrib.supporter_email },
+      { $inc: { credits: contrib.amount } }
+    );
+
+    res.json({ message: 'Contribution rejected and credits refunded to supporter' });
+  } catch (error) {
+    console.error('Error rejecting contribution:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 
 
 
