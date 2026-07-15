@@ -893,6 +893,15 @@ app.patch(
           { $inc: { amount_raised: contrib.amount } },
         );
 
+      // 6. Credit approved amount to creator account balance
+      await db
+        .collection('user')
+        .updateOne(
+          { email: contrib.creator_email },
+          { $inc: { credits: contrib.amount } },
+        );
+
+
       // Notify supporter about the approved contribution
       await createNotification(
         contrib.supporter_email,
