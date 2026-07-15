@@ -338,11 +338,17 @@ app.get('/api/campaigns/top-funded', async (req, res) => {
 // GET /api/campaigns — approved, non-expired campaigns with optional filters
 app.get('/api/campaigns', async (req, res) => {
   try {
-    const { category, search, sort } = req.query as {
+    const { category, search, sort, page, limit } = req.query as {
       category?: string;
       search?: string;
       sort?: string;
+      page?: string;
+      limit?: string;
     };
+
+    const pageNum = parseInt(page || '1') || 1;
+    const limitNum = parseInt(limit || '10') || 10;
+    const skip = (pageNum - 1) * limitNum;
 
     const now = new Date();
 
@@ -372,13 +378,22 @@ app.get('/api/campaigns', async (req, res) => {
       sortQuery = { deadline: 1 };
     }
 
+    const total = await db.collection('campaigns').countDocuments(query);
     const campaigns = await db
       .collection('campaigns')
       .find(query)
       .sort(sortQuery)
+      .skip(skip)
+      .limit(limitNum)
       .toArray();
 
-    res.json(campaigns);
+    res.json({
+      campaigns,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+      currentPage: pageNum,
+      limit: limitNum,
+    });
   } catch (error) {
     console.error('Error fetching campaigns:', error);
     res.status(500).json({ message: 'Internal server error' });
