@@ -318,14 +318,14 @@ app.get('/api/stats/platform', async (req, res) => {
   }
 });
 
-// GET /api/campaigns/top-funded - Returns top 6 approved campaigns by raised amount
+// GET /api/campaigns/top-funded - Returns top 3 approved campaigns by raised amount
 app.get('/api/campaigns/top-funded', async (req, res) => {
   try {
     const campaigns = await db
       .collection('campaigns')
       .find({ status: 'approved' })
       .sort({ amount_raised: -1 })
-      .limit(6)
+      .limit(3)
       .toArray();
 
     res.json(campaigns);
