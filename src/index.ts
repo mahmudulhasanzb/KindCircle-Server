@@ -1278,7 +1278,7 @@ app.post(
             quantity: 1,
           },
         ],
-        success_url: STRIPE_SUCCESS_URL,
+        success_url: `${STRIPE_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${CLIENT_URL}/dashboard/supporter/purchase`,
         metadata: {
           supporter_email: userEmail || '',
@@ -1300,6 +1300,71 @@ app.post(
       res.json({ url: session.url });
     } catch (error) {
       console.error('Error creating checkout session:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  },
+);
+
+// POST /api/payments/confirm — Verify and process checkout session status (Practice fallback without webhooks)
+app.post(
+  '/api/payments/confirm',
+  verifyToken,
+  isSupporter,
+  async (req, res) => {
+    try {
+      const { sessionId } = req.body as { sessionId?: string };
+      const userEmail = (req as AuthRequest).user?.email;
+
+      if (!sessionId) {
+        res.status(400).json({ message: 'Session ID is required' });
+        return;
+      }
+
+      if (!stripe) {
+        res.status(400).json({ message: 'Stripe is not configured' });
+        return;
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.status === 'complete' || session.payment_status === 'paid') {
+        const supporterEmail = session.metadata?.supporter_email;
+        const packageCredits = Number(session.metadata?.packageCredits || 0);
+
+        if (supporterEmail !== userEmail) {
+          res.status(403).json({ message: 'Unauthorized session owner' });
+          return;
+        }
+
+        const payment = await db.collection('payments').findOne({ stripe_session_id: sessionId });
+
+        if (payment && payment.status === 'pending') {
+          await db.collection('payments').updateOne(
+            { stripe_session_id: sessionId },
+            {
+              $set: {
+                status: 'completed',
+                stripe_payment_intent:
+                  typeof session.payment_intent === 'string'
+                    ? session.payment_intent
+                    : undefined,
+              },
+            },
+          );
+          await db
+            .collection('user')
+            .updateOne(
+              { email: supporterEmail },
+              { $inc: { credits: packageCredits } },
+            );
+        }
+
+        res.json({ message: 'Payment confirmed successfully' });
+      } else {
+        res.status(400).json({ message: 'Payment not completed' });
+      }
+    } catch (error) {
+      console.error('Error confirming payment:', error);
       res.status(500).json({ message: 'Internal server error' });
     }
   },
